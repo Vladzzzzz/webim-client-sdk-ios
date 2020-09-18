@@ -73,7 +73,7 @@ final class SQLiteHistoryStorage: HistoryStorage {
     private static let text = Expression<String>(ColumnName.text.rawValue)
     private static let data = Expression<Blob?>(ColumnName.data.rawValue)
     private static let quote = Expression<Blob?>(ColumnName.quote.rawValue)
-    
+    private static let SQLITE_CONSTRAINT: Int = 19
     
     // MARK: - Properties
     private static let queryQueue = DispatchQueue(label: "SQLiteHistoryStorageQueryQueue", qos: .background)
@@ -85,8 +85,7 @@ final class SQLiteHistoryStorage: HistoryStorage {
     private var readBeforeTimestamp: Int64
     private var prepared = false
     private var reachedHistoryEnd: Bool
-    
-    
+
     // MARK: - Initialization
     init(dbName: String,
          serverURL serverURLString: String,
@@ -405,7 +404,7 @@ final class SQLiteHistoryStorage: HistoryStorage {
                         WebimInternalLogger.shared.log(entry: error.localizedDescription,
                                                        verbosityLevel: .warning)
                     }
-                } catch let Result.error(_, code, _) where code == SQLITE_CONSTRAINT {
+                } catch let Result.error(_, code, _) where code == SQLiteHistoryStorage.SQLITE_CONSTRAINT {
                     do {
                         try update(message: message)
                         
