@@ -27,6 +27,13 @@ Add following line to your **Cartfile**:
 github "webim/webim-client-sdk-ios" ~> 3.32.0
 ```
 
+
+### Swift Package Manager (required Xcode 11)
+
+1. Select File > Swift Packages > Add Package Dependency. Enter `https://github.com/webim/webim-client-sdk-ios` in the "Choose Package Repository" dialog.
+2. In the next page, specify the version resolving rule as "Up to Next Major" with the latest `webim-client-sdk-ios` rrelease.
+3. After Xcode checking out the source and resolving the version, you can choose the "WebimClientLibrary" library and add it to your app target.
+
 ### Additional notes
 
 #### Objective-C
