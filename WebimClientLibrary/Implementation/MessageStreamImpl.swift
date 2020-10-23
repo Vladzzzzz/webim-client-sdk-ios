@@ -613,7 +613,7 @@ extension MessageStreamImpl: MessageStream {
     }
     
     func setChatRead() throws {
-        try accessChecker.checkAccess()
+//        try accessChecker.checkAccess()
         
         webimActions.setChatRead()
     }
