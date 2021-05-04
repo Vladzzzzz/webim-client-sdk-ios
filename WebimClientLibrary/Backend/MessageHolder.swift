@@ -42,6 +42,7 @@ final class MessageHolder {
     private var lastChatMessageIndex = 0
     private lazy var messagesToSend = [MessageToSend]()
     private var messageTracker: MessageTrackerImpl?
+    private var currentChatMessagesWereReceived = false
     private var reachedEndOfLocalHistory = false
     private var reachedEndOfRemoteHistory: Bool
     
@@ -82,6 +83,14 @@ final class MessageHolder {
         self.messagesToSend = messagesToSend
     }
     
+    func getCurrentChatMessagesWereReceived() -> Bool {
+        return currentChatMessagesWereReceived
+    }
+    
+    func set(currentChatMessagesWereReceived: Bool) {
+        self.currentChatMessagesWereReceived = currentChatMessagesWereReceived
+    }
+    
     func getLatestMessages(byLimit limitOfMessages: Int,
                            completion: @escaping ([Message]) -> ()) {
         if !currentChatMessages.isEmpty {
@@ -113,6 +122,7 @@ final class MessageHolder {
             }
             if message == firstMessage {
                 if !firstMessage.hasHistoryComponent() {
+                    currentChatMessagesWereReceived = true
                     historyStorage.getLatestHistory(byLimit: limit,
                                                     completion: completion)
                 } else {
@@ -152,6 +162,10 @@ final class MessageHolder {
         self.reachedEndOfLocalHistory = reachedEndOfLocalHistory
     }
     
+    func getReachedEndOfRemoteHistory() -> Bool {
+        return reachedEndOfRemoteHistory
+    }
+    
     func newMessageTracker(withMessageListener messageListener: MessageListener) throws -> MessageTrackerImpl {
         try messageTracker?.destroy()
         
@@ -170,6 +184,7 @@ final class MessageHolder {
                                             idsToDelete: deleted) { [weak self] (endOfBatch: Bool, messageDeleted: Bool, deletedMessageID: String?, messageChanged: Bool, changedMessage: MessageImpl?, messageAdded: Bool, addedMessage: MessageImpl?, idBeforeAddedMessage: HistoryID?) -> () in
                                                 if endOfBatch {
                                                     self?.messageTracker?.endedHistoryBatch()
+                                                    self?.reachedEndOfRemoteHistory = true
                                                     
                                                     completion()
                                                 }
@@ -310,6 +325,7 @@ final class MessageHolder {
                                      senderAvatarURLString: messageImpl.getSenderAvatarURLString(),
                                      senderName: messageImpl.getSenderName(),
                                      sendStatus: .sending,
+                                     sticker: messageImpl.getSticker(),
                                      type: messageImpl.getType(),
                                      rawData: messageImpl.getRawData(),
                                      data: messageImpl.getData(),
@@ -320,7 +336,8 @@ final class MessageHolder {
                                      rawText: messageImpl.getRawText(),
                                      read: messageImpl.isReadByOperator(),
                                      messageCanBeEdited: messageImpl.canBeEdited(),
-                                     messageCanBeReplied: messageImpl.canBeReplied())
+                                     messageCanBeReplied: messageImpl.canBeReplied(),
+                                     messageIsEdited: messageImpl.isEdited())
         messageTracker?.messageListener?.changed(message: messageImpl, to: newMessage)
         return messageImpl.getText()
     }
@@ -352,6 +369,7 @@ final class MessageHolder {
                                      senderAvatarURLString: messageImpl.getSenderAvatarURLString(),
                                      senderName: messageImpl.getSenderName(),
                                      sendStatus: .sent,
+                                     sticker: messageImpl.getSticker(),
                                      type: messageImpl.getType(),
                                      rawData: messageImpl.getRawData(),
                                      data: messageImpl.getData(),
@@ -362,7 +380,8 @@ final class MessageHolder {
                                      rawText: messageImpl.getRawText(),
                                      read: messageImpl.isReadByOperator(),
                                      messageCanBeEdited: messageImpl.canBeEdited(),
-                                     messageCanBeReplied: messageImpl.canBeReplied())
+                                     messageCanBeReplied: messageImpl.canBeReplied(),
+                                     messageIsEdited: messageImpl.isEdited())
         messageTracker?.messageListener?.changed(message: messageImpl, to: newMessage)
     }
     

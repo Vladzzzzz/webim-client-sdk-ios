@@ -46,6 +46,7 @@ class MessageImpl {
     private let senderName: String
     private let sendStatus: MessageSendStatus
     private let serverURLString: String
+    private let sticker: Sticker?
     private let text: String
     private let timeInMicrosecond: Int64
     private let type: MessageType
@@ -57,6 +58,7 @@ class MessageImpl {
     private var read: Bool
     private var messageCanBeEdited: Bool
     private var messageCanBeReplied: Bool
+    private var messageIsEdited: Bool
     
     // MARK: - Initialization
     init(serverURLString: String,
@@ -68,6 +70,7 @@ class MessageImpl {
          senderAvatarURLString: String?,
          senderName: String,
          sendStatus: MessageSendStatus = .sent,
+         sticker: Sticker?,
          type: MessageType,
          rawData: [String: Any?]?,
          data: MessageData?,
@@ -78,7 +81,8 @@ class MessageImpl {
          rawText: String?,
          read: Bool,
          messageCanBeEdited: Bool,
-         messageCanBeReplied: Bool) {
+         messageCanBeReplied: Bool,
+         messageIsEdited: Bool) {
         self.data = data
         self.id = id
         self.keyboard = keyboard
@@ -90,6 +94,7 @@ class MessageImpl {
         self.senderAvatarURLString = senderAvatarURLString
         self.senderName = senderName
         self.sendStatus = sendStatus
+        self.sticker = sticker
         self.serverURLString = serverURLString
         self.text = text
         self.timeInMicrosecond = timeInMicrosecond
@@ -97,6 +102,7 @@ class MessageImpl {
         self.read = read
         self.messageCanBeEdited = messageCanBeEdited
         self.messageCanBeReplied = messageCanBeReplied
+        self.messageIsEdited = messageIsEdited
         
         self.historyMessage = historyMessage
         if historyMessage {
@@ -336,6 +342,10 @@ extension MessageImpl: Message {
         return senderName
     }
     
+    func getSticker() -> Sticker? {
+        return sticker
+    }
+    
     func getText() -> String {
         return text
     }
@@ -367,6 +377,10 @@ extension MessageImpl: Message {
         return messageCanBeReplied
     }
     
+    func isEdited() -> Bool {
+        return messageIsEdited
+    }
+    
 }
 
 // MARK: - Equatable
@@ -383,7 +397,8 @@ extension MessageImpl: Equatable {
             && (lhs.timeInMicrosecond == rhs.timeInMicrosecond))
             && (lhs.type == rhs.type))
             && (lhs.isReadByOperator() == rhs.isReadByOperator()
-            && (lhs.canBeEdited() == rhs.canBeEdited()))
+            && (lhs.canBeEdited() == rhs.canBeEdited()
+            && (lhs.isEdited() == rhs.isEdited())))
     }
     
 }
@@ -425,6 +440,7 @@ final class MessageAttachmentImpl: MessageAttachment {
     
     // MARK: - Properties
     private let fileInfo: FileInfo
+    private let filesInfo: [FileInfo]
     private let state: AttachmentState
     private var downloadProgress: Int64?
     private var errorType: String?
@@ -432,11 +448,13 @@ final class MessageAttachmentImpl: MessageAttachment {
     
     // MARK: - Initialization
     init(fileInfo: FileInfo,
+         filesInfo: [FileInfo],
          state: AttachmentState,
          downloadProgress: Int64? = nil,
          errorType: String? = nil,
          errorMessage: String? = nil) {
         self.fileInfo = fileInfo
+        self.filesInfo = filesInfo
         self.state = state
         self.downloadProgress = downloadProgress
         self.errorType = errorType
@@ -446,6 +464,11 @@ final class MessageAttachmentImpl: MessageAttachment {
     // MARK: - Methods
     func getFileInfo() -> FileInfo {
         return fileInfo
+    }
+    
+    
+    func getFilesInfo() -> [FileInfo] {
+        return filesInfo
     }
     
     func getState() -> AttachmentState {
@@ -488,6 +511,8 @@ final class FileInfoImpl {
     private let filename: String
     private let contentType: String?
     private let imageInfo: ImageInfo?
+    private let guid: String?
+    private weak var fileUrlCreator: FileUrlCreator?
     
     
     // MARK: - Initialization
@@ -495,17 +520,20 @@ final class FileInfoImpl {
          size: Int64?,
          filename: String,
          contentType: String?,
-         imageInfo: ImageInfo? = nil) {
+         imageInfo: ImageInfo? = nil,
+         guid: String?,
+         fileUrlCreator: FileUrlCreator?) {
         self.urlString = urlString
         self.size = size
         self.filename = filename
         self.contentType = contentType
         self.imageInfo = imageInfo
+        self.guid = guid
+        self.fileUrlCreator = fileUrlCreator
     }
     
     // MARK: - Methods
-    static func getAttachment(byServerURL serverURLString: String,
-                              webimClient: WebimClient,
+    static func getAttachment(byFileUrlCreator fileUrlCreator: FileUrlCreator,
                               text: String) -> FileInfoImpl? {
         guard let textData = text.data(using: .utf8) else {
             WebimInternalLogger.shared.log(entry: "Convert Text to Data failure in MessageImpl.\(#function)")
@@ -524,6 +552,37 @@ final class FileInfoImpl {
             return nil
         }
         
+        return getAttachment(byFileUrlCreator: fileUrlCreator,
+                             textDictionary: textDictionary)
+    }
+    
+    static func getAttachments(byFileUrlCreator fileUrlCreator: FileUrlCreator,
+                               text: String) -> [FileInfoImpl] {
+        var attachments = [FileInfoImpl]()
+        guard let textData = text.data(using: .utf8) else {
+            WebimInternalLogger.shared.log(entry: "Convert Text to Data failure in MessageImpl.\(#function)")
+            return []
+        }
+        guard let optionaltextDictionaryArray = (
+            (try? JSONSerialization.jsonObject(with: textData, options: [])
+                as? [Any])
+                as [Any]??),
+            let textDictionaryArray = optionaltextDictionaryArray else {
+            return []
+        }
+        for textDictionary in textDictionaryArray {
+            if let textDictionary = textDictionary as? [String: Any?],
+               let fileInfoImpl = getAttachment(byFileUrlCreator: fileUrlCreator,
+                                                textDictionary: textDictionary) {
+                attachments.append(fileInfoImpl)
+            }
+        }
+        return attachments
+    }
+    
+    // MARK: Private methods
+    private static func getAttachment(byFileUrlCreator fileUrlCreator: FileUrlCreator,
+                                      textDictionary: [String: Any?]) -> FileInfoImpl? {
         let fileParameters = FileParametersItem(jsonDictionary: textDictionary)
         guard let filename = fileParameters.getFilename(),
             let guid = fileParameters.getGUID(),
@@ -531,55 +590,32 @@ final class FileInfoImpl {
             return nil
         }
         
-        guard let pageID = webimClient.getDeltaRequestLoop().getAuthorizationData()?.getPageID(),
-            let authorizationToken = webimClient.getDeltaRequestLoop().getAuthorizationData()?.getAuthorizationToken() else {
-                WebimInternalLogger.shared.log(entry: "Tried to access to message attachment without authorization data.")
-                
-                return nil
-        }
-        
-        let expires = Int64(Date().timeIntervalSince1970) + Period.attachmentURLExpires.rawValue
-        let data: String = guid + String(expires)
-        if let hash = data.hmacSHA256(withKey: authorizationToken) {
-            var formatedFilename = filename
-            if let filenameWithAllowedCharacters = filename.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed) {
-                formatedFilename = filenameWithAllowedCharacters
-            } else {
-                WebimInternalLogger.shared.log(entry: "Adding Percent Encoding With Allowed Characters failure in MessageImpl.\(#function)",
-                                               verbosityLevel: .warning)
-            }
-            let fileURLString = serverURLString + WebimActions.ServerPathSuffix.downloadFile.rawValue + "/"
-                + guid + "/"
-                + formatedFilename + "?"
-                + "page-id" + "=" + pageID + "&"
-                + "expires" + "=" + String(expires) + "&"
-                + "hash" + "=" + hash
+        let fileURLString = fileUrlCreator.createFileURL(byFilename: filename, guid: guid, isThumb: true)
             
-            return FileInfoImpl(urlString: fileURLString,
-                                         size: fileParameters.getSize(),
-                                         filename: filename,
-                                         contentType: contentType,
-                                         imageInfo: extractImageInfoOf(fileParameters: fileParameters,
-                                                                       with: fileURLString))
-        } else {
-            WebimInternalLogger.shared.log(entry: "Error creating message attachment link due to HMAC SHA256 encoding error.")
-            
-            return nil
-        }
+        return FileInfoImpl(urlString: fileURLString,
+                            size: fileParameters.getSize(),
+                            filename: filename,
+                            contentType: contentType,
+                            imageInfo: extractImageInfoOf(fileParameters: fileParameters,
+                                                          fileUrlCreator: fileUrlCreator),
+                            guid: guid,
+                            fileUrlCreator: fileUrlCreator)
     }
     
-    // MARK: Private methods
     private static func extractImageInfoOf(fileParameters: FileParametersItem?,
-                                           with fileURLString: String?) -> ImageInfo? {
+                                           fileUrlCreator: FileUrlCreator) -> ImageInfo? {
         guard let fileParameters = fileParameters,
-            let fileURLString = fileURLString,
+              let filename = fileParameters.getFilename(),
+              let guid = fileParameters.getGUID(),
+              let thumbURLString = fileUrlCreator.createFileURL(byFilename: filename, guid: guid, isThumb: true),
             let imageSize = fileParameters.getImageParameters()?.getSize() else {
             return nil
         }
         
-        let thumbURLString = fileURLString + "&thumb=ios"
-        
         return ImageInfoImpl(withThumbURLString: thumbURLString,
+                             fileUrlCreator: fileUrlCreator,
+                             filename: filename,
+                             guid: guid,
                              width: imageSize.getWidth(),
                              height: imageSize.getHeight())
     }
@@ -610,6 +646,10 @@ extension FileInfoImpl: FileInfo {
             WebimInternalLogger.shared.log(entry: "Getting URL from String failure because URL String is nil in MessageImpl.\(#function)")
             return nil
         }
+        if let guid = guid,
+           let currentURLString = fileUrlCreator?.createFileURL(byFilename: filename, guid: guid) {
+            return URL(string: currentURLString)
+        }
         return URL(string: urlString)
     }
     
@@ -631,12 +671,21 @@ final class ImageInfoImpl: ImageInfo {
     private let thumbURLString: String
     private let width: Int?
     private let height: Int?
+    private weak var fileUrlCreator: FileUrlCreator?
+    private let filename: String
+    private let guid: String?
     
     // MARK: - Initialization
     init(withThumbURLString thumbURLString: String,
+         fileUrlCreator: FileUrlCreator?,
+         filename: String,
+         guid: String?,
          width: Int?,
          height: Int?) {
         self.thumbURLString = thumbURLString
+        self.fileUrlCreator = fileUrlCreator
+        self.filename = filename
+        self.guid = guid
         self.width = width
         self.height = height
     }
@@ -645,7 +694,9 @@ final class ImageInfoImpl: ImageInfo {
     // MARK: ImageInfo protocol methods
     
     func getThumbURL() -> URL {
-        guard let thumbURL = URL(string: thumbURLString) else {
+        guard let guid = guid,
+              let currentURLString = fileUrlCreator?.createFileURL(byFilename: filename, guid: guid, isThumb: true),
+              let thumbURL = URL(string: currentURLString) else {
             WebimInternalLogger.shared.log(entry: "Getting Thumb URL from String failure in MessageImpl.\(#function)")
             fatalError("Getting Thumb URL from String failure in MessageImpl.\(#function)")
         }
@@ -709,6 +760,38 @@ final class KeyboardImpl: Keyboard {
     
     func getResponse() -> KeyboardResponse? {
         return KeyboardResponseImpl(data: keyboardItem.getResponse())
+    }
+}
+
+/**
+ - seealso:
+ `Sticker`
+ - author:
+ Yury Vozleev
+ - copyright:
+ 2020 Webim
+ */
+final class StickerImpl: Sticker {
+    private let stickerItem: StickerItem
+    
+    init?(data: [String: Any?]) {
+        if let sticker = StickerItem(jsonDictionary: data) {
+            self.stickerItem = sticker
+        } else {
+            return nil
+        }
+    }
+    
+    init(stickerId: Int) {
+        self.stickerItem = StickerItem(stickerId: stickerId)
+    }
+    
+    static func getSticker(jsonDictionary: [String : Any?]) -> Sticker? {
+        return StickerImpl(data: jsonDictionary)
+    }
+    
+    func getStickerId() -> Int {
+        return stickerItem.getStickerId()
     }
 }
 

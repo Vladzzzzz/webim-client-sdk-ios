@@ -55,6 +55,7 @@ final class SQLiteHistoryStorage: HistoryStorage {
         case type = "type"
         case text = "text"
         case data = "data"
+        case canBeReplied = "can_be_replied"
         case quote = "quote"
     }
     
@@ -72,6 +73,7 @@ final class SQLiteHistoryStorage: HistoryStorage {
     private static let type = Expression<String>(ColumnName.type.rawValue)
     private static let text = Expression<String>(ColumnName.text.rawValue)
     private static let data = Expression<Blob?>(ColumnName.data.rawValue)
+    private static let canBeReplied = Expression<Bool?>(ColumnName.canBeReplied.rawValue)
     private static let quote = Expression<Blob?>(ColumnName.quote.rawValue)
     private static let SQLITE_CONSTRAINT: Int = 19
     
@@ -79,7 +81,7 @@ final class SQLiteHistoryStorage: HistoryStorage {
     private static let queryQueue = DispatchQueue(label: "SQLiteHistoryStorageQueryQueue", qos: .background)
     private let completionHandlerQueue: DispatchQueue
     private let serverURLString: String
-    private let webimClient: WebimClient
+    private let fileUrlCreator: FileUrlCreator
     private var db: Connection?
     private var firstKnownTimestamp: Int64 = -1
     private var readBeforeTimestamp: Int64
@@ -89,12 +91,12 @@ final class SQLiteHistoryStorage: HistoryStorage {
     // MARK: - Initialization
     init(dbName: String,
          serverURL serverURLString: String,
-         webimClient: WebimClient,
+         fileUrlCreator: FileUrlCreator,
          reachedHistoryEnd: Bool,
          queue: DispatchQueue,
          readBeforeTimestamp: Int64) {
         self.serverURLString = serverURLString
-        self.webimClient = webimClient
+        self.fileUrlCreator = fileUrlCreator
         self.reachedHistoryEnd = reachedHistoryEnd
         self.completionHandlerQueue = queue
         self.readBeforeTimestamp = readBeforeTimestamp
@@ -108,11 +110,11 @@ final class SQLiteHistoryStorage: HistoryStorage {
     
     func getMajorVersion() -> Int {
         // No need in this implementation.
-        return 5
+        return 7
     }
     
     func getVersionDB() -> Int {
-        return 5
+        return 7
     }
     
     func set(reachedHistoryEnd: Bool) {
@@ -284,7 +286,8 @@ final class SQLiteHistoryStorage: HistoryStorage {
                         + "\(SQLiteHistoryStorage.ColumnName.type.rawValue), "
                         + "\(SQLiteHistoryStorage.ColumnName.text.rawValue), "
                         + "\(SQLiteHistoryStorage.ColumnName.data.rawValue), "
-                        + "\(SQLiteHistoryStorage.ColumnName.quote.rawValue)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                        + "\(SQLiteHistoryStorage.ColumnName.canBeReplied.rawValue), "
+                        + "\(SQLiteHistoryStorage.ColumnName.quote.rawValue)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
                     try statement.run(message.getID(),
                                       messageHistorID.getTimeInMicrosecond(),
                                       message.getOperatorID(),
@@ -293,6 +296,7 @@ final class SQLiteHistoryStorage: HistoryStorage {
                                       MessageItem.MessageKind(messageType: message.getType()).rawValue,
                                       message.getRawText() ?? message.getText(),
                                       SQLiteHistoryStorage.convertToBlob(dictionary: message.getRawData()),
+                                      message.canBeReplied(),
                                       SQLiteHistoryStorage.convertToBlob(quote: message.getQuote()))
                     // Raw SQLite statement constructed because there's no way to implement INSERT OR FAIL query with SQLite.swift methods. Appropriate INSERT query can look like this:
                     /*try db.run(SQLiteHistoryStorage
@@ -541,6 +545,7 @@ final class SQLiteHistoryStorage: HistoryStorage {
             t.column(SQLiteHistoryStorage.type)
             t.column(SQLiteHistoryStorage.text)
             t.column(SQLiteHistoryStorage.data)
+            t.column(SQLiteHistoryStorage.canBeReplied)
             t.column(SQLiteHistoryStorage.quote)
         })
         db.trace {
@@ -633,26 +638,38 @@ final class SQLiteHistoryStorage: HistoryStorage {
         }
         
         var attachment: FileInfo? = nil
+        var attachments = [FileInfo]()
         if let rawText = rawText {
-            attachment = FileInfoImpl.getAttachment(byServerURL: serverURLString,
-                                                    webimClient: webimClient,
-                                                    text: rawText)
+            attachments = FileInfoImpl.getAttachments(byFileUrlCreator: fileUrlCreator,
+                                                      text: rawText)
+            if attachments.isEmpty {
+                attachment = FileInfoImpl.getAttachment(byFileUrlCreator: fileUrlCreator,
+                                                        text: rawText)
+                if let attachment = attachment {
+                    attachments.append(attachment)
+                }
+            } else {
+                attachment = attachments.first
+            }
         }
         
         var data: MessageData?
         if let attachment = attachment {
-            data = MessageDataImpl(attachment: MessageAttachmentImpl(fileInfo: attachment, state: .ready))
+            data = MessageDataImpl(attachment: MessageAttachmentImpl(fileInfo: attachment,
+                                                                     filesInfo: attachments,
+                                                                     state: .ready))
         }
         
         var keyboard: Keyboard? = nil
+        var keyboardRequest: KeyboardRequest? = nil
+        var sticker: Sticker?
         if let data = rawData {
             keyboard = KeyboardImpl.getKeyboard(jsonDictionary: data)
+            keyboardRequest = KeyboardRequestImpl.getKeyboardRequest(jsonDictionary: data)
+            sticker = StickerImpl.getSticker(jsonDictionary: data)
         }
         
-        var keyboardRequest: KeyboardRequest? = nil
-        if let data = rawData {
-            keyboardRequest = KeyboardRequestImpl.getKeyboardRequest(jsonDictionary: data)
-        }
+        let canBeReplied = row[SQLiteHistoryStorage.canBeReplied] ?? false
         
         var quote: Quote?
         if let quoteValue = row[SQLiteHistoryStorage.quote],
@@ -668,6 +685,7 @@ final class SQLiteHistoryStorage: HistoryStorage {
                            quote: quote,
                            senderAvatarURLString: row[SQLiteHistoryStorage.avatarURLString],
                            senderName: row[SQLiteHistoryStorage.senderName],
+                           sticker: sticker,
                            type: type,
                            rawData: rawData,
                            data: data,
@@ -678,7 +696,8 @@ final class SQLiteHistoryStorage: HistoryStorage {
                            rawText: rawText,
                            read: row[SQLiteHistoryStorage.timestamp] <= readBeforeTimestamp || readBeforeTimestamp == -1,
                            messageCanBeEdited: false,
-                           messageCanBeReplied: false)
+                           messageCanBeReplied: canBeReplied,
+                           messageIsEdited: false)
     }
     
     private func insert(message: MessageImpl) throws {
@@ -719,6 +738,7 @@ final class SQLiteHistoryStorage: HistoryStorage {
                     SQLiteHistoryStorage.type <- MessageItem.MessageKind(messageType: message.getType()).rawValue,
                     SQLiteHistoryStorage.text <- (message.getRawText() ?? message.getText()),
                     SQLiteHistoryStorage.data <- SQLiteHistoryStorage.convertToBlob(dictionary: message.getRawData()),
+                    SQLiteHistoryStorage.canBeReplied <- message.canBeReplied(),
                     SQLiteHistoryStorage.quote <- SQLiteHistoryStorage.convertToBlob(quote: message.getQuote())))
         
         db.trace {
@@ -757,6 +777,7 @@ final class SQLiteHistoryStorage: HistoryStorage {
                     SQLiteHistoryStorage.type <- MessageItem.MessageKind(messageType: message.getType()).rawValue,
                     SQLiteHistoryStorage.text <- (message.getRawText() ?? message.getText()),
                     SQLiteHistoryStorage.data <- SQLiteHistoryStorage.convertToBlob(dictionary: message.getRawData()),
+                    SQLiteHistoryStorage.canBeReplied <- message.canBeReplied(),
                     SQLiteHistoryStorage.quote <- SQLiteHistoryStorage.convertToBlob(quote: message.getQuote())))
         
         db.trace {

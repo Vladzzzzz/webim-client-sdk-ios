@@ -102,7 +102,7 @@ class AbstractRequestLoop {
     
     func perform(request: URLRequest) throws -> Data {
         var requestWithUesrAngent = request
-        requestWithUesrAngent.setValue("iOS: Webim-Client 3.32.0; (\(UIDevice.current.model); \(UIDevice.current.systemVersion)); Bundle ID and version: \(Bundle.main.bundleIdentifier ?? "none") \(Bundle.main.infoDictionary?["CFBundleVersion"] ?? "none")", forHTTPHeaderField: "User-Agent")
+        requestWithUesrAngent.setValue("iOS: Webim-Client 3.34.4; (\(UIDevice.current.model); \(UIDevice.current.systemVersion)); Bundle ID and version: \(Bundle.main.bundleIdentifier ?? "none") \(Bundle.main.infoDictionary?["CFBundleVersion"] ?? "none")", forHTTPHeaderField: "User-Agent")
         
         var errorCounter = 0
         var lastHTTPCode = -1
@@ -168,7 +168,8 @@ class AbstractRequestLoop {
             if httpCode == 0 {
                 if let handler = self.completionHandlerExecutor {
                     handler.execute(task: DispatchWorkItem {
-                        self.internalErrorListener?.onNotFaral(error: .noNetworkConnection)
+                        self.internalErrorListener?.onNotFatal(error: .noNetworkConnection)
+                        self.internalErrorListener?.connectionStateChanged(connected: false)
                     })
                     usleep(useconds_t(10_000_000.0))
                 } else {
@@ -179,6 +180,7 @@ class AbstractRequestLoop {
             
             if let receivedData = receivedData,
                 httpCode == 200 {
+                self.internalErrorListener?.connectionStateChanged(connected: true)
                 return receivedData
             }
             
@@ -208,7 +210,7 @@ class AbstractRequestLoop {
             if (errorCounter > 4) {
                 // If there was more that five tries stop trying.
                 self.completionHandlerExecutor?.execute(task: DispatchWorkItem {
-                    self.internalErrorListener?.onNotFaral(error: .serverIsNotAvailable)
+                    self.internalErrorListener?.onNotFatal(error: .serverIsNotAvailable)
                 })
                 throw UnknownError.serverError
             }

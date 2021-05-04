@@ -42,6 +42,7 @@ final class WebimRequest {
     private var contentType: String?
     private var dataMessageCompletionHandler: DataMessageCompletionHandler?
     private var historyRequestCompletionHandler: ((_ data: Data?) throws -> ())?
+    private var locationStatusRequestCompletionHandler: ((_ data: Data?) throws -> ())?
     private var faqCompletionHandler: ((_ data: Data?) throws -> ())?
     private var messageID: String?
     private var filename: String?
@@ -55,8 +56,12 @@ final class WebimRequest {
     private var editMessageCompletionHandler: EditMessageCompletionHandler?
     private var sendKeyboardRequestCompletionHandler: SendKeyboardRequestCompletionHandler?
     private var sendDialogToEmailAddressCompletionHandler: SendDialogToEmailAddressCompletionHandler?
+    private var sendStickerCompletionHandler: SendStickerCompletionHandler?
     private var sendSurveyAnswerCompletionHandler: SendSurveyAnswerCompletionHandlerWrapper?
     private var surveyCloseCompletionHandler: SurveyCloseCompletionHandler?
+    private var sendFilesCompletionHandler: SendFilesCompletionHandler?
+    private var deleteUploadedFileCompletionHandler: DeleteUploadedFileCompletionHandler?
+    private var uploadFileToServerCompletionHandler: UploadFileToServerCompletionHandler?
     
     // MARK: - Initialization
     init(httpMethod: AbstractRequestLoop.HTTPMethods,
@@ -69,6 +74,7 @@ final class WebimRequest {
          contentType: String? = nil,
          baseURLString: String,
          historyRequestCompletionHandler: ((_ data: Data?) throws -> ())? = nil,
+         locationStatusRequestCompletionHandler: ((_ data: Data?) throws -> ())? = nil,
          faqCompletionHandler: ((_ data: Data?) throws -> ())? = nil,
          dataMessageCompletionHandler: DataMessageCompletionHandler? = nil,
          rateOperatorCompletionHandler: RateOperatorCompletionHandler? = nil,
@@ -77,9 +83,13 @@ final class WebimRequest {
          editMessageCompletionHandler: EditMessageCompletionHandler? = nil,
          keyboardResponseCompletionHandler: SendKeyboardRequestCompletionHandler? = nil,
          sendDialogToEmailAddressCompletionHandler: SendDialogToEmailAddressCompletionHandler? = nil,
-         sendMessageComplitionHandler: SendMessageCompletionHandler? = nil,
+         sendStickerCompletionHandler: SendStickerCompletionHandler? = nil,
+         sendMessageCompletionHandler: SendMessageCompletionHandler? = nil,
          sendSurveyAnswerCompletionHandler: SendSurveyAnswerCompletionHandlerWrapper? = nil,
-         surveyCloseCompletionHandler: SurveyCloseCompletionHandler? = nil) {
+         surveyCloseCompletionHandler: SurveyCloseCompletionHandler? = nil,
+         sendFilesCompletionHandler: SendFilesCompletionHandler? = nil,
+         deleteUploadedFileCompletionHandler: DeleteUploadedFileCompletionHandler? = nil,
+         uploadFileToServerCompletionHandler: UploadFileToServerCompletionHandler? = nil) {
         self.httpMethod = httpMethod
         self.primaryData = primaryData
         self.messageID = messageID
@@ -90,17 +100,22 @@ final class WebimRequest {
         self.contentType = contentType
         self.baseURLString = baseURLString
         self.historyRequestCompletionHandler = historyRequestCompletionHandler
+        self.locationStatusRequestCompletionHandler = locationStatusRequestCompletionHandler
         self.dataMessageCompletionHandler = dataMessageCompletionHandler
         self.rateOperatorCompletionHandler = rateOperatorCompletionHandler
-        self.sendMessageComplitionHandler = sendMessageComplitionHandler
+        self.sendMessageComplitionHandler = sendMessageCompletionHandler
         self.sendFileCompletionHandler = sendFileCompletionHandler
         self.deleteMessageCompletionHandler = deleteMessageCompletionHandler
         self.editMessageCompletionHandler = editMessageCompletionHandler
         self.sendKeyboardRequestCompletionHandler = keyboardResponseCompletionHandler
         self.faqCompletionHandler = faqCompletionHandler
         self.sendDialogToEmailAddressCompletionHandler = sendDialogToEmailAddressCompletionHandler
+        self.sendStickerCompletionHandler = sendStickerCompletionHandler
         self.sendSurveyAnswerCompletionHandler = sendSurveyAnswerCompletionHandler
         self.surveyCloseCompletionHandler = surveyCloseCompletionHandler
+        self.sendFilesCompletionHandler = sendFilesCompletionHandler
+        self.deleteUploadedFileCompletionHandler = deleteUploadedFileCompletionHandler
+        self.uploadFileToServerCompletionHandler = uploadFileToServerCompletionHandler
     }
     
     
@@ -120,6 +135,10 @@ final class WebimRequest {
     
     func getCompletionHandler() -> ((_ data: Data?) throws -> ())? {
         return historyRequestCompletionHandler
+    }
+    
+    func getLocationStatusCompletionHandler() -> ((_ data: Data?) throws -> ())? {
+        return locationStatusRequestCompletionHandler
     }
     
     func getFAQCompletionHandler() -> ((_ data: Data?) throws -> ())? {
@@ -182,11 +201,27 @@ final class WebimRequest {
         return sendDialogToEmailAddressCompletionHandler
     }
     
+    func getSendStickerCompletionHandler() -> SendStickerCompletionHandler? {
+        return sendStickerCompletionHandler
+    }
+    
     func getSendSurveyAnswerCompletionHandler() -> SendSurveyAnswerCompletionHandlerWrapper? {
         return sendSurveyAnswerCompletionHandler
     }
     
     func getSurveyCloseCompletionHandler() -> SurveyCloseCompletionHandler? {
         return surveyCloseCompletionHandler
+    }
+    
+    func getSendFilesCompletionHandler() -> SendFilesCompletionHandler? {
+        return sendFilesCompletionHandler
+    }
+    
+    func getDeleteUploadedFileCompletionHandler() -> DeleteUploadedFileCompletionHandler? {
+        return deleteUploadedFileCompletionHandler
+    }
+    
+    func getUploadFileToServerCompletionHandler() -> UploadFileToServerCompletionHandler? {
+        return uploadFileToServerCompletionHandler
     }
 }

@@ -192,6 +192,7 @@ final class DeltaCallback {
     private func handleChatUpdateBy(delta: DeltaItem) {
         guard delta.getEvent() == .update,
             let deltaData = delta.getData() as? [String : Any?] else {
+                messageStream?.changingChatStateOf(chat: nil)
                 return
         }
         
@@ -299,6 +300,8 @@ final class DeltaCallback {
     private func handleChatOperatorUpdateBy(delta: DeltaItem) {
         guard delta.getEvent() == .update,
             let deltaData = delta.getData() as? [String : Any] else {
+                currentChat?.set(operator: nil)
+                messageStream?.changingChatStateOf(chat: currentChat)
                 return
         }
         

@@ -148,6 +148,18 @@ final class MessageStreamImpl {
     
     func changingChatStateOf(chat: ChatItem?) {
         guard let chat = chat else {
+            messageHolder.receiving(newChat: self.chat,
+                                    previousChat: nil,
+                                    newMessages: [MessageImpl]())
+            chatStateListener?.changed(state: publicState(ofChatState: lastChatState),
+                                       to: publicState(ofChatState: ChatItem.ChatItemState.closed))
+            lastChatState = ChatItem.ChatItemState.closed
+            let newOperator = operatorFactory.createOperatorFrom(operatorItem: nil)
+            let previousOperator = currentOperator
+            currentOperatorChangeListener?.changed(operator: previousOperator,
+                                                   to: newOperator)
+            currentOperator = newOperator
+            operatorTypingListener?.onOperatorTypingStateChanged(isTyping: false)
             return
         }
         let previousChat = self.chat
@@ -155,7 +167,7 @@ final class MessageStreamImpl {
         
         messageHolder.receiving(newChat: self.chat,
                                 previousChat: previousChat,
-                                newMessages: (self.chat == nil) ? [MessageImpl]() : currentChatMessageFactoriesMapper.mapAll(messages: chat.getMessages()))
+                                newMessages: currentChatMessageFactoriesMapper.mapAll(messages: chat.getMessages()))
         
         let newChatState = chat.getState()
         if let newChatState = newChatState {
@@ -361,9 +373,11 @@ extension MessageStreamImpl: MessageStream {
     }
     
     func getLastRatingOfOperatorWith(id: String) -> Int {
+        // rating in [-2, 2]
         let rating = chat?.getOperatorIDToRate()?[id]
         
-        return rating?.getRating() ?? 0
+        // rating in [1, 5]
+        return (rating?.getRating() ?? -3) + 3
     }
     
     func rateOperatorWith(id: String?, byRating rating: Int, completionHandler: RateOperatorCompletionHandler?) throws {
@@ -490,6 +504,7 @@ extension MessageStreamImpl: MessageStream {
               filename: String,
               mimeType: String,
               completionHandler: SendFileCompletionHandler?) throws -> String {
+        try accessChecker.checkAccess()
         
         var file = file,
             filename = filename,
@@ -528,6 +543,85 @@ extension MessageStreamImpl: MessageStream {
         return messageID
     }
     
+    func send(uploadedFiles: [UploadedFile],
+              completionHandler: SendFilesCompletionHandler?) throws -> String {
+        try accessChecker.checkAccess()
+        
+        try startChat()
+        
+        let messageID = ClientSideID.generateClientSideID()
+        if uploadedFiles.isEmpty {
+            completionHandler?.onFailure(messageID: messageID, error: .fileNotFound)
+            return messageID
+        }
+        if uploadedFiles.count > 10 {
+            completionHandler?.onFailure(messageID: messageID, error: .maxFilesCountPerMessage)
+            return messageID
+        }
+        var message = "[\(uploadedFiles[0].description)"
+        for uploadFile in uploadedFiles.dropFirst() {
+            message += ", \(uploadFile.description)"
+        }
+        message += "]"
+        messageHolder.sending(message: sendingMessageFactory.createFileMessageToSendWith(id: messageID))
+        
+        webimActions.sendFiles(message: message,
+                               clientSideID: messageID,
+                               isHintQuestion: false,
+                               sendFilesCompletionHandler: completionHandler)
+        
+        return messageID
+    }
+    
+    func uploadFilesToServer(file: Data,
+                             filename: String,
+                             mimeType: String,
+                             completionHandler: UploadFileToServerCompletionHandler?) throws -> String {
+        try accessChecker.checkAccess()
+        
+        var file = file
+        var filename = filename
+        var mimeType = mimeType
+        
+        try startChat()
+        
+        let messageID = ClientSideID.generateClientSideID()
+        
+        if mimeType == "image/heic" || mimeType == "image/heif" {
+            guard let image = UIImage(data: file),
+                let imageData = image.jpegData(compressionQuality: 0.5)
+                else {
+                print("Error with heic/heif"); return String()
+            }
+            
+            mimeType = "image/jpeg"
+            file = imageData
+            
+            var nameComponents = filename.components(separatedBy: ".")
+            if nameComponents.count > 1 {
+                nameComponents.removeLast()
+                filename = nameComponents.joined(separator: ".")
+            }
+            filename += ".jpeg"
+        }
+        
+        webimActions.send(file: file,
+                          filename: filename,
+                          mimeType: mimeType,
+                          clientSideID: messageID,
+                          uploadFileToServerCompletionHandler: completionHandler)
+        
+        return messageID
+    }
+    
+    func deleteUploadedFiles(fileGuid: String,
+                             completionHandler: DeleteUploadedFileCompletionHandler?) throws {
+        try accessChecker.checkAccess()
+        
+        webimActions.deleteUploadedFile(fileGuid: fileGuid,
+                                        completionHandler: completionHandler)
+    }
+    
     func sendKeyboardRequest(button: KeyboardButton,
                              message: Message,
                              completionHandler: SendKeyboardRequestCompletionHandler?) throws {
@@ -547,6 +641,15 @@ extension MessageStreamImpl: MessageStream {
                                          messageId: messageCurrentChatID,
                                          completionHandler: completionHandler)
     }
+    
+    func sendSticker(withId stickerId: Int, completionHandler: SendStickerCompletionHandler?) throws {
+        try accessChecker.checkAccess()
+        
+        let messageID = ClientSideID.generateClientSideID()
+        messageHolder.sending(message: sendingMessageFactory.createStickerMessageToSendWith(id: messageID, stickerId: stickerId))
+        webimActions.sendSticker(stickerId: stickerId, clientSideId: messageID, completionHandler: completionHandler)
+    }
+    
     
     func updateWidgetStatus(data: String) throws {
         try accessChecker.checkAccess()
@@ -646,7 +749,7 @@ extension MessageStreamImpl: MessageStream {
         guard let surveyController = surveyController,
             let survey = surveyController.getSurvey() else { return }
 
-        let formID = surveyController.getCurrentFormPointer()
+        let formID = surveyController.getCurrentFormID()
         let questionID = surveyController.getCurrentQuestionPointer()
         let surveyID = survey.getID()
         webimActions.sendQuestionAnswer(surveyID: surveyID,

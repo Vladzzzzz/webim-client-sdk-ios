@@ -36,11 +36,17 @@ import Foundation
 class ActionRequestLoop: AbstractRequestLoop {
     
     // MARK: - Properties
-    var operationQueue: OperationQueue?
+    var actionOperationQueue: OperationQueue?
+    var historyRequestOperationQueue: OperationQueue?
     private var authorizationData: AuthorizationData?
     
     
     // MARK: - Initialization
+    init(completionHandlerExecutor: ExecIfNotDestroyedHandlerExecutor,
+         internalErrorListener: InternalErrorListener, notFatalErrorHandler: NotFatalErrorHandler?) {
+        super.init(completionHandlerExecutor: completionHandlerExecutor, internalErrorListener: internalErrorListener)
+    }
+    
     init(completionHandlerExecutor: ExecIfNotDestroyedHandlerExecutor,
          internalErrorListener: InternalErrorListener) {
         super.init(completionHandlerExecutor: completionHandlerExecutor, internalErrorListener: internalErrorListener)
@@ -49,20 +55,27 @@ class ActionRequestLoop: AbstractRequestLoop {
     // MARK: - Methods
     
     override func start() {
-        guard operationQueue == nil else {
+        guard actionOperationQueue == nil && historyRequestOperationQueue == nil else {
             return
         }
         
-        operationQueue = OperationQueue()
-        operationQueue?.maxConcurrentOperationCount = 1
-        operationQueue?.qualityOfService = .userInitiated
+        actionOperationQueue = OperationQueue()
+        actionOperationQueue?.maxConcurrentOperationCount = 1
+        actionOperationQueue?.qualityOfService = .userInitiated
+        
+        historyRequestOperationQueue = OperationQueue()
+        historyRequestOperationQueue?.maxConcurrentOperationCount = 1
+        historyRequestOperationQueue?.qualityOfService = .userInitiated
     }
     
     override func stop() {
         super.stop()
         
-        operationQueue?.cancelAllOperations()
-        operationQueue = nil
+        actionOperationQueue?.cancelAllOperations()
+        actionOperationQueue = nil
+        
+        historyRequestOperationQueue?.cancelAllOperations()
+        historyRequestOperationQueue = nil
     }
     
     func set(authorizationData: AuthorizationData?) {
@@ -70,6 +83,7 @@ class ActionRequestLoop: AbstractRequestLoop {
     }
     
     func enqueue(request: WebimRequest) {
+        let operationQueue = request.getCompletionHandler() != nil ? historyRequestOperationQueue : actionOperationQueue
         operationQueue?.addOperation { [weak self] in
             guard let `self` = self else {
                 return
@@ -163,9 +177,17 @@ class ActionRequestLoop: AbstractRequestLoop {
                              WebimInternalError.uploadedFileNotFound.rawValue,
                              WebimInternalError.notAllowedMimeType.rawValue,
                              WebimInternalError.notMatchingMagicNumbers.rawValue,
-                             WebimInternalError.unauthorized.rawValue:
+                             WebimInternalError.unauthorized.rawValue,
+                             WebimInternalError.maxFilesCountPerChatExceeded.rawValue,
+                             WebimInternalError.fileSizeTooSmall.rawValue:
                             self.handleSendFile(error: error,
                                                 ofRequest: request)
+                            
+                            break
+                        case WebimInternalError.fileNotFound.rawValue,
+                             WebimInternalError.fileHasBeenSent.rawValue:
+                            self.handleDeleteUploadedFileFile(error: error,
+                                                  ofRequest: request)
                             
                             break
                         case WebimInternalError.wrongArgumentValue.rawValue:
@@ -207,6 +229,9 @@ class ActionRequestLoop: AbstractRequestLoop {
                                                    ofRequest: request)
                             
                             break
+                        case WebimInternalError.noStickerId.rawValue:
+                            self.handleSendStickerError(error: error,
+                                                        ofRequest: request)
                         default:
                             self.running = false
                             
@@ -239,7 +264,19 @@ class ActionRequestLoop: AbstractRequestLoop {
                         })
                     }
                     
-                    self.handleClientCompletionHandlerOf(request: request)
+                    if let completionHandler = request.getLocationStatusCompletionHandler() {
+                        self.completionHandlerExecutor?.execute(task: DispatchWorkItem {
+                            do {
+                                try completionHandler(data)
+                            } catch {
+                                WebimInternalLogger.shared.log(entry: "Error executing callback on receiver data: \(String(data: data, encoding: .utf8) ?? "unreadable data").",
+                                    verbosityLevel: .warning)
+                            }
+                            
+                        })
+                    }
+                    
+                    self.handleClientCompletionHandlerOf(request: request, dataJSON: dataJSON[AbstractRequestLoop.ResponseFields.data.rawValue] as? [String : Any?])
                 } else {
                     WebimInternalLogger.shared.log(entry: "Error de-serializing server response: \(String(data: data, encoding: .utf8) ?? "unreadable data")",
                         verbosityLevel: .warning)
@@ -420,32 +457,69 @@ class ActionRequestLoop: AbstractRequestLoop {
     
     private func handleSendFile(error errorString: String,
                                 ofRequest webimRequest: WebimRequest) {
-        if let sendFileCompletionHandler = webimRequest.getSendFileCompletionHandler() {
+        let sendFileCompletionHandler = webimRequest.getSendFileCompletionHandler()
+        let uploadFileToServerCompletionHandler = webimRequest.getUploadFileToServerCompletionHandler()
+        completionHandlerExecutor?.execute(task: DispatchWorkItem {
+            let sendFileError: SendFileError
+            switch errorString {
+            case WebimInternalError.fileSizeExceeded.rawValue:
+                sendFileError = .fileSizeExceeded
+                break
+            case WebimInternalError.fileTypeNotAllowed.rawValue:
+                sendFileError = .fileTypeNotAllowed
+                break
+            case WebimInternalError.uploadedFileNotFound.rawValue:
+                sendFileError = .uploadedFileNotFound
+                break
+            case WebimInternalError.unauthorized.rawValue:
+                sendFileError = .unauthorized
+                break
+            default:
+                sendFileError = .unknown
+            }
+                
+            guard let messageID = webimRequest.getMessageID() else {
+                WebimInternalLogger.shared.log(entry: "Webim Request has not message ID in ActionRequestLoop.\(#function)")
+                return
+            }
+            sendFileCompletionHandler?.onFailure(messageID: messageID,
+                                                 error: sendFileError)
+            uploadFileToServerCompletionHandler?.onFailure(messageID: messageID, error: sendFileError)
+        })
+    }
+    
+    private func handleDeleteUploadedFileFile(error errorString: String,
+                                  ofRequest webimRequest: WebimRequest) {
+        if let deleteUploadedFileCompletionHandler = webimRequest.getDeleteUploadedFileCompletionHandler() {
             completionHandlerExecutor?.execute(task: DispatchWorkItem {
-                let sendFileError: SendFileError
+                let deleteUploadedFileError: DeleteUploadedFileError
                 switch errorString {
-                case WebimInternalError.fileSizeExceeded.rawValue:
-                    sendFileError = .fileSizeExceeded
+                case WebimInternalError.fileNotFound.rawValue:
+                    deleteUploadedFileError = .fileNotFound
                     break
-                case WebimInternalError.fileTypeNotAllowed.rawValue:
-                    sendFileError = .fileTypeNotAllowed
-                    break
-                case WebimInternalError.uploadedFileNotFound.rawValue:
-                    sendFileError = .uploadedFileNotFound
-                    break
-                case WebimInternalError.unauthorized.rawValue:
-                    sendFileError = .unauthorized
+                case WebimInternalError.fileHasBeenSent.rawValue:
+                    deleteUploadedFileError = .fileHasBeenSent
                     break
                 default:
-                    sendFileError = .unknown
+                    deleteUploadedFileError = .unknown
                 }
-                
-                guard let messageID = webimRequest.getMessageID() else {
-                    WebimInternalLogger.shared.log(entry: "Webim Request has not message ID in ActionRequestLoop.\(#function)")
-                    return
+                deleteUploadedFileCompletionHandler.onFailure(error: deleteUploadedFileError)
+            })
+        }
+    }
+    
+    private func handleSendStickerError(error errorString: String,
+                                        ofRequest webimRequest: WebimRequest) {
+        if let sendStickerCompletionHandler = webimRequest.getSendStickerCompletionHandler() {
+            completionHandlerExecutor?.execute(task: DispatchWorkItem {
+                let sendStickerError: SendStickerError
+                switch errorString {
+                case WebimInternalError.noStickerId.rawValue:
+                    sendStickerError = .noStickerId
+                default:
+                    sendStickerError = .noChat
                 }
-                sendFileCompletionHandler.onFailure(messageID: messageID,
-                                                    error: sendFileError)
+                sendStickerCompletionHandler.onFailure(error: sendStickerError)
             })
         }
     }
@@ -558,22 +632,39 @@ class ActionRequestLoop: AbstractRequestLoop {
             verbosityLevel: .warning)
     }
     
-    private func handleClientCompletionHandlerOf(request: WebimRequest) {
+    private func handleClientCompletionHandlerOf(request: WebimRequest, dataJSON: [String: Any?]?) {
         completionHandlerExecutor?.execute(task: DispatchWorkItem {
             request.getSendDialogToEmailAddressCompletionHandler()?.onSuccess()
             request.getSendSurveyAnswerCompletionHandler()?.onSuccess()
             request.getSurveyCloseCompletionHandler()?.onSuccess()
+            request.getRateOperatorCompletionHandler()?.onSuccess()
+            request.getSendStickerCompletionHandler()?.onSuccess()
             guard let messageID = request.getMessageID() else {
                 WebimInternalLogger.shared.log(entry: "Request has not message ID in ActionRequestLoop.\(#function)")
                 return
             }
             request.getDataMessageCompletionHandler()?.onSuccess(messageID: messageID)
             request.getSendFileCompletionHandler()?.onSuccess(messageID: messageID)
-            request.getRateOperatorCompletionHandler()?.onSuccess()
             request.getDeleteMessageCompletionHandler()?.onSuccess(messageID: messageID)
             request.getEditMessageCompletionHandler()?.onSuccess(messageID: messageID)
             request.getKeyboardResponseCompletionHandler()?.onSuccess(messageID: messageID)
+            request.getSendFilesCompletionHandler()?.onSuccess(messageID: messageID)
+            if let dataJSON = dataJSON {
+                request.getUploadFileToServerCompletionHandler()?.onSuccess(id: messageID, uploadedFile: self.getUploadedFileFrom(dataJSON: dataJSON))
+            }
+            request.getDeleteMessageCompletionHandler()?.onSuccess(messageID: messageID)
         })
+    }
+    
+    private func getUploadedFileFrom(dataJSON: [String: Any?]) -> UploadedFile {
+        let fileParameters = FileParametersItem(jsonDictionary: dataJSON)
+        return UploadedFileImpl(size: fileParameters.getSize() ?? 0,
+                                guid: fileParameters.getGUID() ?? "",
+                                contentType: fileParameters.getContentType(),
+                                filename: fileParameters.getFilename() ?? "",
+                                visitorID: fileParameters.getVisitorID() ?? "",
+                                clientContentType: fileParameters.getClientContentType() ?? "",
+                                imageParameters: fileParameters.getImageParameters())
     }
     
     private static func convertToPublic(dataMessageErrorString: String) -> DataMessageError {

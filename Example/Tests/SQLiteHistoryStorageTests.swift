@@ -34,6 +34,7 @@ class SQLiteHistoryStorageTests: XCTestCase {
     private static let DB_NAME = "test"
     private static let SERVER_URL_STRING = "https://demo.webim.ru"
     private static let userDefaultsKey = "userDefaultsKey"
+    let timeout = 8.0
     
     // MARK: - Properties
     var sqLiteHistoryStorage: SQLiteHistoryStorage?
@@ -104,17 +105,20 @@ class SQLiteHistoryStorageTests: XCTestCase {
                                         quote: nil,
                                         senderAvatarURLString: nil,
                                         senderName: "Name",
+                                        sendStatus: .sent,
+                                        sticker: nil,
                                         type: MessageType.operatorMessage,
+                                        rawData: nil,
                                         data: nil,
                                         text: "Text",
                                         timeInMicrosecond: Int64(index * 1_000_000_000_000),
-                                        attachment: nil,
                                         historyMessage: true,
                                         internalID: String(index),
                                         rawText: nil,
                                         read: true,
                                         messageCanBeEdited: false,
-                                        messageCanBeReplied: false))
+                                        messageCanBeReplied: false,
+                                        messageIsEdited: false))
         }
         
         return messages
@@ -124,7 +128,7 @@ class SQLiteHistoryStorageTests: XCTestCase {
     
     func testGetMajorVersion() {
         XCTAssertEqual(sqLiteHistoryStorage!.getMajorVersion(),
-                       1)
+                       7)
     }
     
     func testGetFullHistory() {
@@ -140,7 +144,7 @@ class SQLiteHistoryStorageTests: XCTestCase {
             expectation.fulfill()
         }
         wait(for: [expectation],
-             timeout: 1.0)
+             timeout: timeout)
         
         XCTAssertEqual(gettedMessages.count,
                        messagesCount)
@@ -159,7 +163,7 @@ class SQLiteHistoryStorageTests: XCTestCase {
             gettedMessages = messages
         }
         wait(for: [expectation],
-             timeout: 1.0)
+             timeout: timeout)
         
         XCTAssertEqual(gettedMessages.count,
                        messagesLimit)
@@ -188,7 +192,7 @@ class SQLiteHistoryStorageTests: XCTestCase {
                                                 expectation.fulfill()
         }
         wait(for: [expectation],
-             timeout: 1.0)
+             timeout: timeout)
         
         XCTAssertEqual(gettedMessages.count,
                        messagesLimit)

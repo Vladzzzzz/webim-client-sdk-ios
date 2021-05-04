@@ -35,7 +35,7 @@ extension UITableView {
                                                  width: self.bounds.size.width,
                                                  height: self.bounds.size.height))
         messageLabel.attributedText = NSAttributedString(string: message)
-        messageLabel.textColor = textMainColor.color()
+        messageLabel.textColor = textMainColour
         messageLabel.numberOfLines = 0
         messageLabel.textAlignment = .center
         messageLabel.sizeToFit()
@@ -44,4 +44,12 @@ extension UITableView {
         self.separatorStyle = .none
     }
     
+    func scrollToRowSafe(at indexPath: IndexPath, at scrollPosition: UITableView.ScrollPosition, animated: Bool) {
+        if  indexPath.section >= 0 &&
+            indexPath.row >= 0 &&
+            self.numberOfSections > indexPath.section &&
+            self.numberOfRows(inSection: indexPath.section) > indexPath.row {
+            self.scrollToRow(at: indexPath, at: scrollPosition, animated: animated)
+        }
+    }
 }

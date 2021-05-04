@@ -46,6 +46,7 @@ final class MessageTrackerImpl {
     private var headMessage: MessageImpl?
     private var firstHistoryUpdateReceived: Bool?
     private var messagesLoading: Bool?
+    private var currentChatMessagesWereReceived = false
     
     // MARK: - Initialization
     init(messageListener: MessageListener,
@@ -410,13 +411,18 @@ final class MessageTrackerImpl {
                     var filteredMessages = [MessageImpl]()
                     
                     for message in messages {
+                        var addToFilteredMessages = true
+                        
                         if message.getSource().isHistoryMessage() {
                             let messageTime = message.getTime()
+                            let headMessageTime = headMessage?.getTime() ?? messageTime
                             if (messageTime >= first.getTime())
-                                && (messageTime <= last.getTime()) {
+                                && (messageTime <= last.getTime())
+                                && messageHolder.getCurrentChatMessagesWereReceived() {
                                 for currentChatMessage in currentChatMessages {
                                     if currentChatMessage.getID() == message.getID() {
                                         
+                                        addToFilteredMessages = false
                                         currentChatMessage.setSecondaryHistory(historyEquivalentMessage: message)
                                         break
                                     }
@@ -424,7 +430,9 @@ final class MessageTrackerImpl {
                             }
                         }
                         
-                        filteredMessages.append(message)
+                        if addToFilteredMessages {
+                            filteredMessages.append(message)
+                        }
                     }
                     
                     if filteredMessages.isEmpty {
@@ -523,6 +531,7 @@ extension MessageTrackerImpl: MessageTracker {
         
         allMessageSourcesEnded = false
         messageHolder.set(reachedEndOfLocalHistory: false)
+        messageHolder.set(currentChatMessagesWereReceived: false)
         let currentChatMessages = messageHolder.getCurrentChatMessages()
         if currentChatMessages.isEmpty {
             messagesLoading = true
@@ -532,7 +541,7 @@ extension MessageTrackerImpl: MessageTracker {
             
             messageHolder.getHistoryStorage().getLatestHistory(byLimit: limitOfMessages) { [weak self] messages in
                 if let cachedCompletionHandler = self?.cachedCompletionHandler,
-                    !messages.isEmpty || self?.firstHistoryUpdateReceived == true {
+                   !messages.isEmpty || self?.messageHolder.getReachedEndOfRemoteHistory() == true {
                     self?.firstHistoryUpdateReceived = true
                     
                     let completionHandlerToPass = cachedCompletionHandler.getCompletionHandler()
@@ -596,7 +605,7 @@ extension MessageTrackerImpl: MessageTracker {
             
             messageHolder.getHistoryStorage().getLatestHistory(byLimit: limitOfMessages) { [weak self] messages in
                 if let cachedCompletionHandler = self?.cachedCompletionHandler,
-                    !messages.isEmpty || self?.firstHistoryUpdateReceived == true {
+                   !messages.isEmpty || self?.messageHolder.getReachedEndOfRemoteHistory() == true {
                     self?.firstHistoryUpdateReceived = true
                     
                     let completionHandlerToPass = cachedCompletionHandler.getCompletionHandler()

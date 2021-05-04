@@ -52,6 +52,8 @@ public final class Webim {
      Returns new FAQBuilder object for creating FAQ object.
      - returns:
      The instance of FAQ builder.
+     - attention:
+     This method can't be used as is. It requires that client server to support this mechanism.
      - author:
      Nikita Kaberov
      - copyright:
@@ -155,6 +157,7 @@ public final class SessionBuilder  {
     private weak var webimLogger: WebimLogger?
     private var webimLoggerVerbosityLevel: WebimLoggerVerbosityLevel?
     private var prechat: String?
+    private var onlineStatusRequestFrequencyInMillis: Int64?
 
     // MARK: - Methods
 
@@ -203,6 +206,8 @@ public final class SessionBuilder  {
      Prechat fields in JSON format.
      - returns:
      `SessionBuilder` object with location set.
+     - attention:
+     This method can't be used as is. It requires that client server to support this mechanism.
      - author:
      Nikita Kaberov
      - copyright:
@@ -290,6 +295,8 @@ public final class SessionBuilder  {
      Optional. Client generated provided authorization token. If it is not passed, library generates its own.
      - seealso:
      `ProvidedAuthorizationTokenStateListener`
+     - attention:
+     This method can't be used as is. It requires that client server to support this mechanism.
      - author:
      Nikita Lazarev-Zubov
      - copyright:
@@ -430,6 +437,8 @@ public final class SessionBuilder  {
      Boolean parameter that indicated if an app should receive remote notifications for different visitors.
      - returns:
      `SessionBuilder` object with isVisitorDataClearingEnabled parameter set.
+     - attention:
+     This method can't be used as is. It requires that client server to support this mechanism.
      - author:
      Nikita Kaberov
      - copyright:
@@ -437,6 +446,23 @@ public final class SessionBuilder  {
      */
     public func set(multivisitorSection: String) -> SessionBuilder {
         self.multivisitorSection = multivisitorSection
+        
+        return self
+    }
+    
+    /**
+     If is set, SDK will request online status every and fire listener.
+     - parameter onlineStatusRequestFrequencyInMillis:
+     Request location frequency to server in millis.
+     - returns:
+     `SessionBuilder` object with requestLocationFrequencyInMs parameter set.
+     - author:
+     Nikita Kaberov
+     - copyright:
+     2021 Webim
+     */
+    public func set(onlineStatusRequestFrequencyInMillis: Int64) -> SessionBuilder {
+        self.onlineStatusRequestFrequencyInMillis = onlineStatusRequestFrequencyInMillis
         
         return self
     }
@@ -563,7 +589,8 @@ public final class SessionBuilder  {
                                                 webimLogger: webimLogger,
                                                 verbosityLevel: webimLoggerVerbosityLevel,
                                                 prechat: prechat,
-                                                multivisitorSection: multivisitorSection) as WebimSession
+                                                multivisitorSection: multivisitorSection,
+                                                onlineStatusRequestFrequencyInMillis: onlineStatusRequestFrequencyInMillis) as WebimSession
     }
     
     /**
@@ -776,6 +803,8 @@ public final class SessionBuilder  {
  `FAQ` builder.
  - seealso:
  `Webim.newFAQBuilder()`
+ - attention:
+ This class can't be used as is. It requires that client server to support this mechanism.
  - author:
  Nikita Kaberov
  - copyright:

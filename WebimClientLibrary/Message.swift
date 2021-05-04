@@ -131,6 +131,18 @@ public protocol Message {
     
     /**
      - returns:
+     The sticker item that was sent to the server.
+     - attention:
+     This method can't be used as is. It requires that client server to support this mechanism.
+     - author:
+     Yury Vozleev
+     - copyright:
+     2020 Webim
+     */
+    func getSticker() -> Sticker?
+    
+    /**
+     - returns:
      URL of a sender's avatar or `nil` if one does not exist.
      - author:
      Nikita Lazarev-Zubov
@@ -234,6 +246,15 @@ public protocol Message {
      */
     func canBeReplied() -> Bool
     
+    /**
+     - returns:
+     True if this message is edited.
+     - author:
+     Eugene Ilyin
+     - copyright:
+     2019 Webim
+     */
+    func isEdited() -> Bool
 }
 
 /**
@@ -268,6 +289,8 @@ public protocol MessageData {
  Contains an attachment file.
  - seealso:
  `MessageData.getAttachment()`
+ - attention:
+ This mechanism can't be used as is. It requires that client server to support this mechanism.
  - author:
  Yury Vozleev
  - copyright:
@@ -276,13 +299,23 @@ public protocol MessageData {
 public protocol MessageAttachment {
     /**
      - returns:
-     The fileinfo of the attachment.
+     The file info of the attachment.
      - author:
      Vozleev Yury
      - copyright:
      2020 Webim
      */
     func getFileInfo() -> FileInfo
+    
+    /**
+     - returns:
+     The files info of the attachment.
+     - author:
+     Nikita Kaberov
+     - copyright:
+     2020 Webim
+     */
+    func getFilesInfo() -> [FileInfo]
     
     /**
      - returns:
@@ -330,6 +363,8 @@ public protocol MessageAttachment {
  Shows the state of the attachment.
  - seealso:
  `MessageAttachment.getState()`
+ - attention:
+ This mechanism can't be used as is. It requires that client server to support this mechanism.
  - author:
  Yury Vozleev
  - copyright:
@@ -768,6 +803,30 @@ public protocol Quote {
     func getState() -> QuoteState
 }
 
+/**
+ Contains information about sticker.
+ - seealso:
+ `Message.getSticker()`
+ - attention:
+ This mechanism can't be used as is. It requires that client server to support this mechanism.
+ - author:
+ Yury Vozleev
+ - copyright:
+ 2020 Webim
+ */
+public protocol Sticker {
+    
+    /**
+     - returns:
+     Sticker ID.
+     - author:
+     Yury Vozleev
+     - copyright:
+     2020 Webim
+     */
+    func getStickerId() -> Int
+}
+
 // MARK: -
 /**
  Supported quote states.
@@ -1009,7 +1068,17 @@ public enum MessageType {
     
     @available(*, unavailable, renamed: "visitorMessage")
     case VISITOR
-
+    
+    /**
+     A sticker message sent by a visitor.
+     - seealso:
+     `Message.getText()`
+     - author:
+     Yury Vozleev
+     - copyright:
+     2020 Webim
+     */
+    case stickerVisitor
 }
 
 /**

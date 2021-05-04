@@ -61,7 +61,9 @@ class WebimActions {
         case event = "event"
         case firstQuestion = "first-question"
         case forceOnline = "force-online"
+        case guid = "guid"
         case hintQuestion = "hint_question"
+        case kind = "kind"
         case location = "location"
         case message = "message"
         case operatorID = "operator_id"
@@ -75,6 +77,7 @@ class WebimActions {
         case visitorNote = "visitor_note"
         case visitSessionID = "visit-session-id"
         case since = "since"
+        case stickerId = "sticker-id"
         case surveyAnswer = "answer"
         case surveyFormID = "form-id"
         case surveyID = "survey-id"
@@ -93,7 +96,9 @@ class WebimActions {
     }
     enum ServerPathSuffix: String {
         case doAction = "/l/v/m/action"
+        case fileDelete = "/l/v/file-delete"
         case getDelta = "/l/v/m/delta"
+        case getOnlineStatus = "/l/v/get-online-status"
         case downloadFile = "/l/v/m/download"
         case getHistory = "/l/v/m/history"
         case uploadFile = "/l/v/m/upload"
@@ -120,6 +125,7 @@ class WebimActions {
         case chatRead = "chat.read_by_visitor"
         case widgetUpdate = "widget.update"
         case keyboardResponse = "chat.keyboard_response"
+        case sendSticker = "sticker"
     }
     
     // MARK: - Properties
@@ -146,7 +152,7 @@ class WebimActions {
                           Parameter.clientSideID.rawValue: clientSideID,
                           Parameter.message.rawValue: message] as [String: Any]
         if let isHintQuestion = isHintQuestion {
-            dataToPost[Parameter.hintQuestion.rawValue] = isHintQuestion ? "1" : "0" // True / false.
+            dataToPost[Parameter.hintQuestion.rawValue] = isHintQuestion
         }
         if let dataJSONString = dataJSONString {
             dataToPost[Parameter.data.rawValue] = dataJSONString
@@ -161,14 +167,15 @@ class WebimActions {
                                                         baseURLString: urlString,
                                                         dataMessageCompletionHandler: dataMessageCompletionHandler,
                                                         editMessageCompletionHandler: editMessageCompletionHandler,
-                                                        sendMessageComplitionHandler: sendMessageCompletionHandler))
+                                                        sendMessageCompletionHandler: sendMessageCompletionHandler))
     }
     
     func send(file: Data,
               filename: String,
               mimeType: String,
               clientSideID: String,
-              completionHandler: SendFileCompletionHandler?) {
+              completionHandler: SendFileCompletionHandler? = nil,
+              uploadFileToServerCompletionHandler: UploadFileToServerCompletionHandler? = nil) {
         let dataToPost = [Parameter.chatMode.rawValue: ChatMode.online.rawValue,
                           Parameter.clientSideID.rawValue: clientSideID] as [String: Any]
         
@@ -185,7 +192,31 @@ class WebimActions {
                                                         boundaryString: boundaryString,
                                                         contentType: (ContentType.multipartBody.rawValue + boundaryString),
                                                         baseURLString: urlString,
-                                                        sendFileCompletionHandler: completionHandler))
+                                                        sendFileCompletionHandler: completionHandler,
+                                                        uploadFileToServerCompletionHandler: uploadFileToServerCompletionHandler))
+    }
+    
+    func sendFiles(message: String,
+                   clientSideID: String,
+                   isHintQuestion: Bool?,
+                   sendFilesCompletionHandler: SendFilesCompletionHandler?) {
+        var dataToPost = [Parameter.actionn.rawValue: Action.sendMessage.rawValue,
+                          Parameter.clientSideID.rawValue: clientSideID,
+                          Parameter.message.rawValue: message,
+                          Parameter.kind.rawValue: "file_visitor"] as [String: Any]
+        if let isHintQuestion = isHintQuestion {
+            dataToPost[Parameter.hintQuestion.rawValue] = isHintQuestion
+        }
+        
+        let urlString = baseURL + ServerPathSuffix.doAction.rawValue
+        
+        actionRequestLoop.enqueue(request: WebimRequest(httpMethod: .post,
+                                                        primaryData: dataToPost,
+                                                        messageID: clientSideID,
+                                                        contentType: ContentType.urlEncoded.rawValue,
+                                                        baseURLString: urlString,
+                                                        sendFilesCompletionHandler: sendFilesCompletionHandler))
+        
     }
     
     func replay(message: String,
@@ -224,12 +255,25 @@ class WebimActions {
                                                         deleteMessageCompletionHandler: completionHandler))
     }
     
+    func deleteUploadedFile(fileGuid: String,
+                            completionHandler: DeleteUploadedFileCompletionHandler?) {
+        let dataToPost = [Parameter.guid.rawValue: fileGuid] as [String: Any]
+        
+        let urlString = baseURL + ServerPathSuffix.fileDelete.rawValue
+        
+        actionRequestLoop.enqueue(request: WebimRequest(httpMethod: .get,
+                                                        primaryData: dataToPost,
+                                                        contentType: ContentType.urlEncoded.rawValue,
+                                                        baseURLString: urlString,
+                                                        deleteUploadedFileCompletionHandler: completionHandler))
+    }
+    
     func startChat(withClientSideID clientSideID: String,
                    firstQuestion: String? = nil,
                    departmentKey: String? = nil,
                    customFields: String? = nil) {
         var dataToPost = [Parameter.actionn.rawValue: Action.startChat.rawValue,
-                          Parameter.forceOnline.rawValue: "1", // true
+                          Parameter.forceOnline.rawValue: true,
                           Parameter.clientSideID.rawValue: clientSideID] as [String: Any]
         if let firstQuestion = firstQuestion {
             dataToPost[Parameter.firstQuestion.rawValue] = firstQuestion
@@ -307,7 +351,7 @@ class WebimActions {
     
     func requestHistory(beforeMessageTimestamp: Int64,
                         completion: @escaping (_ data: Data?) throws -> ()) {
-        let dataToPost = [Parameter.beforeTimestamp.rawValue: String(beforeMessageTimestamp)] as [String: Any]
+        let dataToPost = [Parameter.beforeTimestamp.rawValue: beforeMessageTimestamp] as [String: Any]
         
         let urlString = baseURL + ServerPathSuffix.getHistory.rawValue
         
@@ -417,6 +461,26 @@ class WebimActions {
                                                         sendDialogToEmailAddressCompletionHandler: completionHandler))
     }
     
+    func sendSticker(stickerId:Int,
+                     clientSideId: String,
+                     completionHandler: SendStickerCompletionHandler? = nil) {
+        let dataToPost = [
+            Parameter.actionn.rawValue: Action.sendSticker.rawValue,
+            Parameter.stickerId.rawValue: stickerId,
+            Parameter.clientSideID.rawValue: clientSideId
+        ] as [String: Any]
+        
+        let urlString = baseURL + ServerPathSuffix.doAction.rawValue
+        
+        actionRequestLoop.enqueue(request: WebimRequest(
+            httpMethod: .post,
+            primaryData: dataToPost,
+            contentType: ContentType.urlEncoded.rawValue,
+            baseURLString: urlString,
+            sendStickerCompletionHandler: completionHandler
+        ))
+    }
+    
     func sendQuestionAnswer(surveyID: String,
                             formID: Int,
                             questionID: Int,
@@ -424,8 +488,8 @@ class WebimActions {
                             sendSurveyAnswerCompletionHandler: SendSurveyAnswerCompletionHandlerWrapper?) {
         let dataToPost = [Parameter.actionn.rawValue: Action.surveyAnswer.rawValue,
                           Parameter.surveyID.rawValue: surveyID,
-                          Parameter.surveyFormID.rawValue: String(formID),
-                          Parameter.surveyQuestionID.rawValue: String(questionID),
+                          Parameter.surveyFormID.rawValue: formID,
+                          Parameter.surveyQuestionID.rawValue: questionID,
                           Parameter.surveyAnswer.rawValue: surveyAnswer] as [String: Any]
 
         let urlString = baseURL + ServerPathSuffix.doAction.rawValue
@@ -449,6 +513,19 @@ class WebimActions {
                                                         contentType: ContentType.urlEncoded.rawValue,
                                                         baseURLString: urlString,
                                                         surveyCloseCompletionHandler: surveyCloseCompletionHandler))
+    }
+    
+    func getOnlineStatus(location: String,
+                         completion: @escaping (_ data: Data?) throws -> ()) {
+        let dataToPost = [Parameter.location.rawValue: location] as [String: Any]
+
+        let urlString = baseURL + ServerPathSuffix.getOnlineStatus.rawValue
+        
+        actionRequestLoop.enqueue(request: WebimRequest(httpMethod: .get,
+                                                        primaryData: dataToPost,
+                                                        contentType: ContentType.urlEncoded.rawValue,
+                                                        baseURLString: urlString,
+                                                        locationStatusRequestCompletionHandler: completion))
     }
     
 }
